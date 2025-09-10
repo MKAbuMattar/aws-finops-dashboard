@@ -68,28 +68,35 @@ jobs:
             exit 0
           fi
       
-          stale_lines=$(echo "${STALE_LIST:-[]}" | jq -r --arg repo "$REPO" '
-            map(if has("pull_request")
-                then "• PR #\(.number) – https://github.com/\($repo)/pull/\(.number)"
-                else "• Issue #\(.number) – https://github.com/\($repo)/issues/\(.number)"
-                end) | join("\n")')
-          closed_lines=$(echo "${CLOSED_LIST:-[]}" | jq -r --arg repo "$REPO" '
-            map(if has("pull_request")
-                then "• PR #\(.number) – https://github.com/\($repo)/pull/\(.number)"
-                else "• Issue #\(.number) – https://github.com/\($repo)/issues/\(.number)"
-                end) | join("\n")')
+          if [ "$stale_total" -gt 0 ]; then
+            stale_lines=$(echo "${STALE_LIST:-[]}" | jq -r --arg repo "$REPO" '
+              map(if has("pull_request")
+                  then "• PR #\(.number) – https://github.com/\($repo)/pull/\(.number)"
+                  else "• Issue #\(.number) – https://github.com/\($repo)/issues/\(.number)"
+                  end) | .[]')
+          fi
+          
+          closed_lines=""
+          if [ "$closed_total" -gt 0 ]; then
+            closed_lines=$(echo "${CLOSED_LIST:-[]}" | jq -r --arg repo "$REPO" '
+              map(if has("pull_request")
+                  then "• PR #\(.number) – https://github.com/\($repo)/pull/\(.number)"
+                  else "• Issue #\(.number) – https://github.com/\($repo)/issues/\(.number)"
+                  end) | .[]')
+          fi
       
           header=":broom: *Stale sweep in* \`${REPO}\`"
           if [ "$DRY_RUN" = "true" ]; then
             header="$header (DRY RUN)"
           fi
       
+          # Build the message body properly
           body="$header"
           if [ "$stale_total" -gt 0 ]; then
-            body="$body\n*Staled:* ${stale_total}\n${stale_lines}\n"
+            body="$body"$'\n'"*Staled:* ${stale_total}"$'\n'"${stale_lines}"
           fi
           if [ "$closed_total" -gt 0 ]; then
-            body="$body\n*Closed:* ${closed_total}\n${closed_lines}\n"
+            body="$body"$'\n'"*Closed:* ${closed_total}"$'\n'"${closed_lines}"
           fi
       
           export BODY="$body"
@@ -107,4 +114,3 @@ jobs:
           curl -X POST -H 'Content-type: application/json' \
                --data @payload.json \
                "$SLACK_WEBHOOK_URL"
-               
