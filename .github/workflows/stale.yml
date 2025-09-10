@@ -58,14 +58,17 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs['dry-run'] == 'true') && 'true' || 'false' }}
         run: |
+          set -euo pipefail
+      
           stale_total=$(echo "${STALE_LIST:-[]}"  | jq 'length')
           closed_total=$(echo "${CLOSED_LIST:-[]}" | jq 'length')
-
+      
           if [ "$stale_total" -eq 0 ] && [ "$closed_total" -eq 0 ]; then
             echo "No staled/closed items; skipping Slack."
             exit 0
           fi
-
+      
+          # Short previews (max 10 links each)
           stale_preview=$(
             echo "${STALE_LIST:-[]}" | jq -r --arg repo "$REPO" '
               .[0:10] | map(
@@ -84,18 +87,24 @@ jobs:
                 end
               ) | join("\n")'
           )
-
+      
           header="🧹 *Stale sweep in* \`${REPO}\`"
-          [ "$DRY_RUN" = "true" ] && header="$header (DRY RUN)"
-
-          text="$header
-          $( [ "$stale_total" -gt 0 ] && printf '*Staled:* %s\n%s\n' "$stale_total" "$stale_preview" )
-          $( [ "$closed_total" -gt 0 ] && printf '*Closed:* %s\n%s\n' "$closed_total" "$closed_preview" )
-          <${RUN_URL}|View run logs>"
-
-          # Export for Python to JSON-escape safely
+          if [ "$DRY_RUN" = "true" ]; then
+            header="$header (DRY RUN)"
+          fi
+      
+          # Build text without command substitutions that can fail
+          text="$header"
+          if [ "$stale_total" -gt 0 ]; then
+            text="$text\n*Staled:* ${stale_total}\n${stale_preview}\n"
+          fi
+          if [ "$closed_total" -gt 0 ]; then
+            text="$text\n*Closed:* ${closed_total}\n${closed_preview}\n"
+          fi
+          text="$text<${RUN_URL}|View run logs>"
+      
+          # JSON-escape and POST
           export TEXT="$text"
-
           payload=$(python - <<'PY'
           import json, os
           print(json.dumps({"text": os.environ["TEXT"]}))
@@ -104,4 +113,4 @@ jobs:
           curl -X POST -H 'Content-type: application/json' \
                --data "$payload" \
                "$SLACK_WEBHOOK_URL"
-        shell: bash
+
