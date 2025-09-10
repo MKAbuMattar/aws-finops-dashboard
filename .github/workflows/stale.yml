@@ -68,49 +68,43 @@ jobs:
             exit 0
           fi
       
-          # Short previews (max 10 links each)
-          stale_preview=$(
-            echo "${STALE_LIST:-[]}" | jq -r --arg repo "$REPO" '
-              .[0:10] | map(
-                if has("pull_request")
+          stale_lines=$(echo "${STALE_LIST:-[]}" | jq -r --arg repo "$REPO" '
+            map(if has("pull_request")
                 then "• PR #\(.number) – https://github.com/\($repo)/pull/\(.number)"
                 else "• Issue #\(.number) – https://github.com/\($repo)/issues/\(.number)"
-                end
-              ) | join("\n")'
-          )
-          closed_preview=$(
-            echo "${CLOSED_LIST:-[]}" | jq -r --arg repo "$REPO" '
-              .[0:10] | map(
-                if has("pull_request")
+                end) | join("\n")')
+          closed_lines=$(echo "${CLOSED_LIST:-[]}" | jq -r --arg repo "$REPO" '
+            map(if has("pull_request")
                 then "• PR #\(.number) – https://github.com/\($repo)/pull/\(.number)"
                 else "• Issue #\(.number) – https://github.com/\($repo)/issues/\(.number)"
-                end
-              ) | join("\n")'
-          )
+                end) | join("\n")')
       
-          header="🧹 *Stale sweep in* \`${REPO}\`"
+          header=":broom: *Stale sweep in* \`${REPO}\`"
           if [ "$DRY_RUN" = "true" ]; then
             header="$header (DRY RUN)"
           fi
       
-          # Build text without command substitutions that can fail
-          text="$header"
+          body="$header"
           if [ "$stale_total" -gt 0 ]; then
-            text="$text\n*Staled:* ${stale_total}\n${stale_preview}\n"
+            body="$body\n*Staled:* ${stale_total}\n${stale_lines}\n"
           fi
           if [ "$closed_total" -gt 0 ]; then
-            text="$text\n*Closed:* ${closed_total}\n${closed_preview}\n"
+            body="$body\n*Closed:* ${closed_total}\n${closed_lines}\n"
           fi
-          text="$text<${RUN_URL}|View run logs>"
       
-          # JSON-escape and POST
-          export TEXT="$text"
-          payload=$(python - <<'PY'
+          export BODY="$body"
+      
+          python - <<'PY' > payload.json
           import json, os
-          print(json.dumps({"text": os.environ["TEXT"]}))
+          payload = {
+            "blocks": [
+              {"type": "section", "text": {"type": "mrkdwn", "text": os.environ["BODY"]}}
+            ]
+          }
+          print(json.dumps(payload))
           PY
-          )
+      
           curl -X POST -H 'Content-type: application/json' \
-               --data "$payload" \
+               --data @payload.json \
                "$SLACK_WEBHOOK_URL"
-
+               
