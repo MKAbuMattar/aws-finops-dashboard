@@ -25,6 +25,7 @@ jobs:
 
           days-before-issue-stale: 60
           days-before-issue-close: 5
+
           days-before-pr-stale: 30
           days-before-pr-close: 5
 
@@ -34,12 +35,14 @@ jobs:
             activity in the last 60 days. It will be closed in 5 days if no further activity occurs. 
             Please feel free to leave a comment if you believe the issue is still relevant.
             Thank you for your contributions!
+
           stale-pr-label: 'stale'
           stale-pr-message: >
             This pull request has been automatically marked as stale because it has not had
             activity in the last 30 days. It will be closed in 5 days if no further activity occurs. 
             Please feel free to give a status update by leaving a comment. 
             Thank you for your contributions!
+
           close-issue-message: >
             This issue has been automatically closed because it has not had any further
             activity in the last 5 days. Thank you for your contributions!
@@ -47,7 +50,7 @@ jobs:
             This pull request has been automatically closed because it has not had any further
             activity in the last 5 days. Thank you for your contributions!
 
-          operations-per-run: 50
+          operations-per-run: 100
 
       - name: Notify Slack (only if items changed)
         env:
@@ -59,38 +62,38 @@ jobs:
           DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs['dry-run'] == 'true') && 'true' || 'false' }}
         run: |
           set -euo pipefail
-      
+
           stale_total=$(echo "${STALE_LIST:-[]}"  | jq 'length')
           closed_total=$(echo "${CLOSED_LIST:-[]}" | jq 'length')
-      
+
           if [ "$stale_total" -eq 0 ] && [ "$closed_total" -eq 0 ]; then
             echo "No staled/closed items; skipping Slack."
             exit 0
           fi
-      
+
+          stale_lines=""
           if [ "$stale_total" -gt 0 ]; then
             stale_lines=$(echo "${STALE_LIST:-[]}" | jq -r --arg repo "$REPO" '
               map(if has("pull_request")
-                  then "• PR #\(.number) – https://github.com/\($repo)/pull/\(.number)"
-                  else "• Issue #\(.number) – https://github.com/\($repo)/issues/\(.number)"
+                  then "• PR #\(.number) - https://github.com/\($repo)/pull/\(.number)"
+                  else "• Issue #\(.number) - https://github.com/\($repo)/issues/\(.number)"
                   end) | .[]')
           fi
-          
+
           closed_lines=""
           if [ "$closed_total" -gt 0 ]; then
             closed_lines=$(echo "${CLOSED_LIST:-[]}" | jq -r --arg repo "$REPO" '
               map(if has("pull_request")
-                  then "• PR #\(.number) – https://github.com/\($repo)/pull/\(.number)"
-                  else "• Issue #\(.number) – https://github.com/\($repo)/issues/\(.number)"
+                  then "• PR #\(.number) - https://github.com/\($repo)/pull/\(.number)"
+                  else "• Issue #\(.number) - https://github.com/\($repo)/issues/\(.number)"
                   end) | .[]')
           fi
-      
+
           header=":broom: *Stale sweep in* \`${REPO}\`"
           if [ "$DRY_RUN" = "true" ]; then
             header="$header (DRY RUN)"
           fi
-      
-          # Build the message body properly
+
           body="$header"
           if [ "$stale_total" -gt 0 ]; then
             body="$body"$'\n'"*Staled:* ${stale_total}"$'\n'"${stale_lines}"
@@ -98,9 +101,9 @@ jobs:
           if [ "$closed_total" -gt 0 ]; then
             body="$body"$'\n'"*Closed:* ${closed_total}"$'\n'"${closed_lines}"
           fi
-      
+
           export BODY="$body"
-      
+
           python - <<'PY' > payload.json
           import json, os
           payload = {
@@ -110,7 +113,7 @@ jobs:
           }
           print(json.dumps(payload))
           PY
-      
+
           curl -X POST -H 'Content-type: application/json' \
                --data @payload.json \
                "$SLACK_WEBHOOK_URL"
