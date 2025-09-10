@@ -1,8 +1,6 @@
 name: Close stale issues and PRs
 
 on:
-  schedule:
-    - cron: '30 16 * * 1'
   workflow_dispatch:
     inputs:
       dry-run:
@@ -27,7 +25,6 @@ jobs:
 
           days-before-issue-stale: 60
           days-before-issue-close: 5
-
           days-before-pr-stale: 30
           days-before-pr-close: 5
 
@@ -37,14 +34,12 @@ jobs:
             activity in the last 60 days. It will be closed in 5 days if no further activity occurs. 
             Please feel free to leave a comment if you believe the issue is still relevant.
             Thank you for your contributions!
-
           stale-pr-label: 'stale'
           stale-pr-message: >
             This pull request has been automatically marked as stale because it has not had
             activity in the last 30 days. It will be closed in 5 days if no further activity occurs. 
             Please feel free to give a status update by leaving a comment. 
             Thank you for your contributions!
-
           close-issue-message: >
             This issue has been automatically closed because it has not had any further
             activity in the last 5 days. Thank you for your contributions!
@@ -54,11 +49,59 @@ jobs:
 
           operations-per-run: 50
 
-      - name: Show outputs (safe)
+      - name: Notify Slack (only if items changed)
         env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           STALE_LIST: ${{ steps.stale.outputs.staled-issues-prs }}
           CLOSED_LIST: ${{ steps.stale.outputs.closed-issues-prs }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs['dry-run'] == 'true') && 'true' || 'false' }}
         run: |
-          printf 'Staled:\n%s\n' "$STALE_LIST"
-          printf 'Closed:\n%s\n' "$CLOSED_LIST"
+          stale_total=$(echo "${STALE_LIST:-[]}"  | jq 'length')
+          closed_total=$(echo "${CLOSED_LIST:-[]}" | jq 'length')
 
+          if [ "$stale_total" -eq 0 ] && [ "$closed_total" -eq 0 ]; then
+            echo "No staled/closed items; skipping Slack."
+            exit 0
+          fi
+
+          stale_preview=$(
+            echo "${STALE_LIST:-[]}" | jq -r --arg repo "$REPO" '
+              .[0:10] | map(
+                if has("pull_request")
+                then "• PR #\(.number) – https://github.com/\($repo)/pull/\(.number)"
+                else "• Issue #\(.number) – https://github.com/\($repo)/issues/\(.number)"
+                end
+              ) | join("\n")'
+          )
+          closed_preview=$(
+            echo "${CLOSED_LIST:-[]}" | jq -r --arg repo "$REPO" '
+              .[0:10] | map(
+                if has("pull_request")
+                then "• PR #\(.number) – https://github.com/\($repo)/pull/\(.number)"
+                else "• Issue #\(.number) – https://github.com/\($repo)/issues/\(.number)"
+                end
+              ) | join("\n")'
+          )
+
+          header="🧹 *Stale sweep in* \`${REPO}\`"
+          [ "$DRY_RUN" = "true" ] && header="$header (DRY RUN)"
+
+          text="$header
+          $( [ "$stale_total" -gt 0 ] && printf '*Staled:* %s\n%s\n' "$stale_total" "$stale_preview" )
+          $( [ "$closed_total" -gt 0 ] && printf '*Closed:* %s\n%s\n' "$closed_total" "$closed_preview" )
+          <${RUN_URL}|View run logs>"
+
+          # Export for Python to JSON-escape safely
+          export TEXT="$text"
+
+          payload=$(python - <<'PY'
+          import json, os
+          print(json.dumps({"text": os.environ["TEXT"]}))
+          PY
+          )
+          curl -X POST -H 'Content-type: application/json' \
+               --data "$payload" \
+               "$SLACK_WEBHOOK_URL"
+        shell: bash
