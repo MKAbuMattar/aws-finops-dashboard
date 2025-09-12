@@ -84,8 +84,8 @@ jobs:
           if [ "$closed_total" -gt 0 ]; then
             closed_lines=$(echo "${CLOSED_LIST:-[]}" | jq -r --arg repo "$REPO" '
               map(if has("pull_request")
-                  then "• Pull Request <https://github.com/\($repo)/pull/\(.number)|PR #\(.number)>"
-                  else "• Issue <https://github.com/\($repo)/issues/\(.number)|Issue #\(.number)>"
+                  then "• <https://github.com/\($repo)/pull/\(.number)|Pull Request #\(.number)>"
+                  else "• <https://github.com/\($repo)/issues/\(.number)|Issue #\(.number)>"
                   end) | .[]')
           fi
 
