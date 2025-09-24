@@ -17,7 +17,7 @@ else:
 
 import yaml
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import landscape, letter
+from reportlab.lib.pagesizes import portrait, letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import (
     Flowable,
@@ -26,10 +26,22 @@ from reportlab.platypus import (
     Spacer,
     Table,
     TableStyle,
+    ListFlowable, 
+    ListItem, 
+    PageBreak,
 )
+from reportlab.lib.units import inch
 from rich.console import Console
 
 from aws_finops_dashboard.types import ProfileData
+from aws_finops_dashboard.pdf_utils import (
+    paragraphStyling,
+    sectionHeading,
+    miniHeader,
+    keyValueTable,
+    bulletList,
+    formatServicesForList,
+)
 
 console = Console()
 
@@ -37,8 +49,8 @@ console = Console()
 styles = getSampleStyleSheet()
 
 # Custom style for the footer
-audit_footer_style = ParagraphStyle(
-    name="AuditFooter",
+pdf_footer_style = ParagraphStyle(
+    name="PDF_Footer",
     parent=styles["Normal"],
     fontSize=8,
     textColor=colors.grey,
@@ -123,13 +135,13 @@ def export_audit_report_to_pdf(
         elements.append(
             Paragraph(
                 "Note: This table lists untagged EC2, RDS, Lambda, ELBv2 only.",
-                audit_footer_style,
+                pdf_footer_style,
             )
         )
         elements.append(Spacer(1, 2))
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         footer_text = f"This audit report is generated using AWS FinOps Dashboard (CLI) \u00a9 2025 on {current_time_str}"
-        elements.append(Paragraph(footer_text, audit_footer_style))
+        elements.append(Paragraph(footer_text, pdf_footer_style))
 
         doc.build(elements)
         return output_filename
@@ -231,7 +243,7 @@ def export_trend_data_to_json(
     except Exception as e:
         console.print(f"[bold red]Error exporting trend data to JSON: {str(e)}[/]")
         return None
-
+    
 def export_cost_dashboard_to_pdf(
     data: List[ProfileData],
     filename: str,
@@ -239,7 +251,6 @@ def export_cost_dashboard_to_pdf(
     previous_period_dates: str = "N/A",
     current_period_dates: str = "N/A",
 ) -> Optional[str]:
-    """Export dashboard data to a PDF file."""
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M")
         base_filename = f"{filename}_{timestamp}.pdf"
@@ -249,77 +260,69 @@ def export_cost_dashboard_to_pdf(
             output_filename = os.path.join(output_dir, base_filename)
         else:
             output_filename = base_filename
+        
+        doc = SimpleDocTemplate(
+            output_filename,
+            pagesize=portrait(letter),
+            leftMargin=0.5*inch,
+            rightMargin=0.5*inch,
+            topMargin=0.5*inch,
+            bottomMargin=0.5*inch,
+            allowSplitting=True,
+        )
 
-        doc = SimpleDocTemplate(output_filename, pagesize=landscape(letter))
-        styles = getSampleStyleSheet()
         elements: List[Flowable] = []
+        elements.append(Paragraph("AWS FinOps Dashboard (Cost Report)", styles["Title"]))
+        elements.append(Spacer(1, 10))
 
-        previous_period_header = f"Cost for period\n({previous_period_dates})"
-        current_period_header = f"Cost for period\n({current_period_dates})"
+        elements.append(paragraphStyling(f"<b>Previous Period:</b> {previous_period_dates}<br/><b>Current Period:</b> {current_period_dates}"))
+        elements.append(Spacer(1, 6))
 
-        headers = [
-            "CLI Profile",
-            "AWS Account ID",
-            previous_period_header,
-            current_period_header,
-            "Cost By Service",
-            "Budget Status",
-            "EC2 Instances",
-        ]
-        table_data = [headers]
-
-        for row in data:
-            services_data = "\n".join(
-                [f"{service}: ${cost:.2f}" for service, cost in row["service_costs"]]
+        for idx, row in enumerate(data):
+            header_tbl = Table(
+                [[paragraphStyling(f"<b>Profile:</b> {row['profile']}  &nbsp;&nbsp;&nbsp; "
+                     f"<b>Account:</b> {row['account_id']}")]],
+                colWidths=[doc.width],
+                hAlign="LEFT",
             )
-            budgets_data = (
-                "\n".join(row["budget_info"]) if row["budget_info"] else "No budgets"
-            )
-            ec2_data_summary = "\n".join(
-                [
-                    f"{state}: {count}"
-                    for state, count in row["ec2_summary"].items()
-                    if count > 0
-                ]
-            )
+            header_tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.whitesmoke),
+                ("BOX", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            elements.append(header_tbl)
+            elements.append(Spacer(1, 6))
 
-            table_data.append(
-                [
-                    row["profile"],
-                    row["account_id"],
-                    f"${row['last_month']:.2f}",
-                    f"${row['current_month']:.2f}",
-                    services_data or "No costs",
-                    budgets_data or "No budgets",
-                    ec2_data_summary or "No instances",
-                ]
-            )
+            kv_rows = [
+                ("Previous Period Cost", f"<b>${row['last_month']:.2f}</b>"),
+                ("Current Period Cost", f"<b>${row['current_month']:.2f}</b>"),
+            ]
+            elements.append(keyValueTable(kv_rows))
+            elements.append(Spacer(1, 6))
 
-        table = Table(table_data, repeatRows=1)
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.black),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                    ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
-                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-                    ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
-                ]
-            )
-        )
+            elements.append(miniHeader("Cost By Service"))
+            svc_items = formatServicesForList(row["service_costs"])
+            elements.append(bulletList(svc_items))
+            elements.append(Spacer(1, 6))
 
-        elements.append(
-            Paragraph("AWS FinOps Dashboard (Cost Report)", styles["Title"])
-        )
-        elements.append(Spacer(1, 12))
-        elements.append(table)
-        elements.append(Spacer(1, 4))
-        current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        footer_text = f"This report is generated using AWS FinOps Dashboard (CLI) \u00a9 2025 on {current_time_str}"
-        elements.append(Paragraph(footer_text, audit_footer_style))
+            elements.append(miniHeader("Budget Status"))
+            budgets = row["budget_info"] if row["budget_info"] else ["No budgets"]
+            elements.append(bulletList(budgets))
+            elements.append(Spacer(1, 6))
+
+            elements.append(miniHeader("EC2 Instances"))
+            ec2_items = [f"{state}: {count}" for state, count in row["ec2_summary"].items() if count > 0] or ["No instances"]
+            elements.append(bulletList(ec2_items))
+
+            if idx < len(data) - 1:
+                elements.append(Spacer(1, 14))
+
+        elements.append(Spacer(1, 8))
+        footer_text = f"This report is generated using AWS FinOps Dashboard (CLI) \u00a9 2025 on {datetime.now():%Y-%m-%d %H:%M:%S}"
+        elements.append(Paragraph(footer_text, pdf_footer_style))
 
         doc.build(elements)
         return os.path.abspath(output_filename)

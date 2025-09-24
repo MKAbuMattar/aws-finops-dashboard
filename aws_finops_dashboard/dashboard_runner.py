@@ -31,7 +31,7 @@ from aws_finops_dashboard.helpers import (
     export_cost_dashboard_to_pdf,
     export_audit_report_to_csv,
     export_audit_report_to_json,
-    export_trend_data_to_json
+    export_trend_data_to_json,
 )
 from aws_finops_dashboard.profile_processor import (
     process_combined_profiles,
