@@ -19,8 +19,8 @@ Key features include:
 *   **Audit Your AWS Accounts:** Quickly identify spending patterns, untagged resources, underutilised resources and potential savings.
 ![alt text](audit_report.png)
 *   **Generate Cost & Audit Reports:** You can generate Cost, Trend and Audit Reports in PDF, CSV & JSON formats for further analysis and reporting purposes.
-![alt text](audit_report_pdf.png)
-![alt text](cost_report_pdf.png)
+![alt text](cost-report.jpg)
+![alt text](audit-report.jpg)
 
 ## Table of Contents
 
