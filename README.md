@@ -1,4 +1,4 @@
-# AWS FinOps Dashboard (CLI) v2.2.7
+# AWS FinOps Dashboard (CLI) v2.2.8
 
 [![PyPI version](https://img.shields.io/pypi/v/aws-finops-dashboard.svg)](https://pypi.org/project/aws-finops-dashboard/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -19,8 +19,8 @@ Key features include:
 *   **Audit Your AWS Accounts:** Quickly identify spending patterns, untagged resources, underutilised resources and potential savings.
 ![alt text](audit_report.png)
 *   **Generate Cost & Audit Reports:** You can generate Cost, Trend and Audit Reports in PDF, CSV & JSON formats for further analysis and reporting purposes.
-![alt text](audit_report_pdf.png)
-![alt text](cost_report_pdf.png)
+![alt text](cost-report.jpg)
+![alt text](audit-report.jpg)
 
 ## Table of Contents
 
