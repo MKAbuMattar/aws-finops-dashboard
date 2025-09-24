@@ -26,9 +26,6 @@ from reportlab.platypus import (
     Spacer,
     Table,
     TableStyle,
-    ListFlowable, 
-    ListItem, 
-    PageBreak,
 )
 from reportlab.lib.units import inch
 from rich.console import Console
@@ -36,11 +33,11 @@ from rich.console import Console
 from aws_finops_dashboard.types import ProfileData
 from aws_finops_dashboard.pdf_utils import (
     paragraphStyling,
-    sectionHeading,
     miniHeader,
     keyValueTable,
     bulletList,
     formatServicesForList,
+    split_to_items,
 )
 
 console = Console()
@@ -58,95 +55,81 @@ pdf_footer_style = ParagraphStyle(
     leading=10,
 )
 
-
 def export_audit_report_to_pdf(
     audit_data_list: List[Dict[str, str]],
     file_name: str = "audit_report",
     path: Optional[str] = None,
 ) -> Optional[str]:
     """
-    Export the audit report to a PDF file.
-
-    :param audit_data_list: List of dictionaries, each representing a profile/account's audit data.
-    :param file_name: The base name of the output PDF file.
-    :param path: Optional directory where the PDF file will be saved.
-    :return: Full path of the generated PDF file or None on error.
+    Text-mode audit report: one section per profile with small flowables (lists/paras),
+    so content wraps and paginates cleanly.
     """
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M")
         base_filename = f"{file_name}_{timestamp}.pdf"
+        output_filename = os.path.join(path, base_filename) if path else base_filename
 
-        if path:
-            os.makedirs(path, exist_ok=True)
-            output_filename = os.path.join(path, base_filename)
-        else:
-            output_filename = base_filename
+        # Slightly tighter margins to gain usable frame space
+        doc = SimpleDocTemplate(
+            output_filename,
+            pagesize=portrait(letter),
+            leftMargin=0.5*inch,
+            rightMargin=0.5*inch,
+            topMargin=0.5*inch,
+            bottomMargin=0.5*inch,
+            allowSplitting=True,
+        )
 
-        doc = SimpleDocTemplate(output_filename, pagesize=landscape(letter))
-        styles = getSampleStyleSheet()
         elements: List[Flowable] = []
+        elements.append(Paragraph("AWS FinOps Dashboard (Audit Report)", styles["Title"]))
+        elements.append(Spacer(1, 8))
 
-        headers = [
-            "Profile",
-            "Account ID",
-            "Untagged Resources",
-            "Stopped EC2 Instances",
-            "Unused Volumes",
-            "Unused EIPs",
-            "Budget Alerts",
-        ]
-        table_data = [headers]
-
-        for row in audit_data_list:
-            table_data.append(
-                [
-                    row.get("profile", ""),
-                    row.get("account_id", ""),
-                    row.get("untagged_resources", ""),
-                    row.get("stopped_instances", ""),
-                    row.get("unused_volumes", ""),
-                    row.get("unused_eips", ""),
-                    row.get("budget_alerts", ""),
-                ]
+        for idx, row in enumerate(audit_data_list):
+            # Header card per profile
+            header_tbl = Table(
+                [[paragraphStyling(f"<b>Profile:</b> {row['profile']}  &nbsp;&nbsp;&nbsp; "
+                     f"<b>Account:</b> {row['account_id']}")]],
+                colWidths=[doc.width],
+                hAlign="LEFT",
             )
+            header_tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.whitesmoke),
+                ("BOX", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            elements.append(header_tbl)
+            elements.append(Spacer(1, 6))
 
-        table = Table(table_data, repeatRows=1)
-        table.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.black),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                    ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 8),
-                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("GRID", (0, 0), (-1, -1), 0.25, colors.black),
-                    ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
-                ]
-            )
-        )
+            # Sections (each as a bulleted list)
+            sections = [
+                ("Untagged Resources", split_to_items(row.get("untagged_resources", ""))),
+                ("Stopped EC2 Instances", split_to_items(row.get("stopped_instances", ""))),
+                ("Unused Volumes", split_to_items(row.get("unused_volumes", ""))),
+                ("Unused EIPs", split_to_items(row.get("unused_eips", ""))),
+                ("Budget Alerts", split_to_items(row.get("budget_alerts", ""))),
+            ]
 
-        elements.append(
-            Paragraph("AWS FinOps Dashboard (Audit Report)", styles["Title"])
-        )
-        elements.append(Spacer(1, 12))
-        elements.append(table)
-        elements.append(Spacer(1, 4))
-        elements.append(
-            Paragraph(
-                "Note: This table lists untagged EC2, RDS, Lambda, ELBv2 only.",
-                pdf_footer_style,
-            )
-        )
-        elements.append(Spacer(1, 2))
-        current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        footer_text = f"This audit report is generated using AWS FinOps Dashboard (CLI) \u00a9 2025 on {current_time_str}"
+            for title, items in sections:
+                elements.append(miniHeader(title))
+                elements.append(bulletList(items))
+                elements.append(Spacer(1, 6))
+
+            if idx < len(audit_data_list) - 1:
+                elements.append(Spacer(1, 10))
+
+        elements.append(Spacer(1, 8))
+        footer_note = "Note: This report lists untagged EC2, RDS, Lambda, ELBv2 only."
+        elements.append(Paragraph(footer_note, pdf_footer_style))
+        footer_text = f"This audit report is generated using AWS FinOps Dashboard (CLI) \u00a9 2025 on {datetime.now():%Y-%m-%d %H:%M:%S}"
         elements.append(Paragraph(footer_text, pdf_footer_style))
 
         doc.build(elements)
-        return output_filename
+        return os.path.abspath(output_filename)
     except Exception as e:
-        console.print(f"[bold red]Error exporting audit report to PDF: {str(e)}[/]")
+        console.print(f"[bold red]Error exporting audit report to PDF (text-mode): {str(e)}[/]")
         return None
 
 
